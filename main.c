@@ -31,11 +31,17 @@
 //  - BOOTLOADER_ENTRY_PIN is low
 //  - Watchdog scratch[5] == BOOTLOADER_ENTRY_MAGIC && scratch[6] == ~BOOTLOADER_ENTRY_MAGIC
 //  - No valid image header
+#ifndef BOOTLOADER_ENTRY_PIN
 #define BOOTLOADER_ENTRY_PIN 15
+#endif
 #define BOOTLOADER_ENTRY_MAGIC 0xb105f00d
 
+#ifndef UART_TX_PIN
 #define UART_TX_PIN 0
+#endif
+#ifndef UART_RX_PIN
 #define UART_RX_PIN 1
+#endif
 #define UART_BAUD   921600
 
 #define CMD_SYNC   (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
