@@ -8,6 +8,7 @@
 
 #include "RP2040.h"
 #include "pico/time.h"
+#include "pico/stdlib.h"
 #include "hardware/dma.h"
 #include "hardware/flash.h"
 #include "hardware/structs/dma.h"
@@ -42,7 +43,10 @@
 #ifndef UART_RX_PIN
 #define UART_RX_PIN 1
 #endif
-#define UART_BAUD   921600
+#define UART_BAUD   3686400
+#define UART_DATA_BITS 8
+#define UART_STOP_BITS 1
+#define UART_PARITY UART_PARITY_NONE
 
 #define CMD_SYNC   (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ   (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
@@ -55,6 +59,14 @@
 #define CMD_INFO   (('I' << 0) | ('N' << 8) | ('F' << 16) | ('O' << 24))
 #define CMD_REBOOT (('B' << 0) | ('O' << 8) | ('O' << 16) | ('T' << 24))
 
+// All responds start with Header prefix and uint16 of packet length
+// -----------------------------------------------------------
+// | HDRPFX(uint16) | size(uint16) | RspCode | Payload       |
+// -----------------------------------------------------------
+//                              |<--      size            -->|
+// This is to help forward the responds through a forwarder
+#define RSP_HDR_PFX  ((0xAA << 0) | (0x55 << 8))
+#define RSP_HDR(size) (RSP_HDR_PFX | (size << 16))
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
 #define RSP_ERR  (('E' << 0) | ('R' << 8) | ('R' << 16) | ('!' << 24))
@@ -663,7 +675,9 @@ static enum state state_handle_data(struct cmd_context *ctx)
 	}
 
 	size_t resp_len = sizeof(ctx->status) + (sizeof(*ctx->resp_args) * desc->resp_nargs) + ctx->resp_data_len;
+	uint32_t hdr = RSP_HDR(resp_len);
 	memcpy(ctx->uart_buf, &ctx->status, sizeof(ctx->status));
+	uart_write_blocking(uart0, &hdr, sizeof(hdr));
 	uart_write_blocking(uart0, ctx->uart_buf, resp_len);
 
 	return STATE_READ_OPCODE;
@@ -672,7 +686,9 @@ static enum state state_handle_data(struct cmd_context *ctx)
 static enum state state_error(struct cmd_context *ctx)
 {
 	size_t resp_len = sizeof(ctx->status);
+	uint32_t hdr = RSP_HDR(resp_len);
 	memcpy(ctx->uart_buf, &ctx->status, sizeof(ctx->status));
+	uart_write_blocking(uart0, &hdr, sizeof(hdr));
 	uart_write_blocking(uart0, ctx->uart_buf, resp_len);
 
 	return STATE_WAIT_FOR_SYNC;
@@ -688,6 +704,7 @@ static bool should_stay_in_bootloader()
 
 int main(void)
 {
+    set_sys_clock_khz(120000, true);
 	gpio_init(PICO_DEFAULT_LED_PIN);
 	gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 	gpio_put(PICO_DEFAULT_LED_PIN, 1);
@@ -713,6 +730,8 @@ int main(void)
 	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
 	gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 	uart_set_hw_flow(uart0, false, false);
+    uart_set_format(uart0, UART_DATA_BITS, UART_STOP_BITS, UART_PARITY);
+    uart_set_translate_crlf(uart0, false);
 
 	struct cmd_context ctx;
 	uint8_t uart_buf[(sizeof(uint32_t) * (1 + MAX_NARG)) + MAX_DATA_LEN];
