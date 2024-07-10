@@ -631,7 +631,8 @@ static enum state state_read_args(struct cmd_context *ctx)
 	ctx->desc = desc;
 	ctx->args = (uint32_t *)(ctx->uart_buf + sizeof(ctx->opcode));
 	ctx->data = (uint8_t *)(ctx->args + desc->nargs);
-	ctx->resp_args = ctx->args;
+	// Response has extra header
+	ctx->resp_args = (uint32_t *)(ctx->uart_buf + sizeof(uint32_t) /* HDR */ + sizeof(ctx->opcode));
 	ctx->resp_data = (uint8_t *)(ctx->resp_args + desc->resp_nargs);
 
 	uart_read_blocking(uart0, (uint8_t *)ctx->args, sizeof(*ctx->args) * desc->nargs);
@@ -676,9 +677,9 @@ static enum state state_handle_data(struct cmd_context *ctx)
 
 	size_t resp_len = sizeof(ctx->status) + (sizeof(*ctx->resp_args) * desc->resp_nargs) + ctx->resp_data_len;
 	uint32_t hdr = RSP_HDR(resp_len);
-	memcpy(ctx->uart_buf, &ctx->status, sizeof(ctx->status));
-	uart_write_blocking(uart0, &hdr, sizeof(hdr));
-	uart_write_blocking(uart0, ctx->uart_buf, resp_len);
+	memcpy(ctx->uart_buf, &hdr, sizeof(hdr));
+	memcpy(ctx->uart_buf + sizeof(hdr), &ctx->status, sizeof(ctx->status));
+	uart_write_blocking(uart0, ctx->uart_buf, resp_len + sizeof(hdr));
 
 	return STATE_READ_OPCODE;
 }
@@ -687,9 +688,9 @@ static enum state state_error(struct cmd_context *ctx)
 {
 	size_t resp_len = sizeof(ctx->status);
 	uint32_t hdr = RSP_HDR(resp_len);
-	memcpy(ctx->uart_buf, &ctx->status, sizeof(ctx->status));
-	uart_write_blocking(uart0, &hdr, sizeof(hdr));
-	uart_write_blocking(uart0, ctx->uart_buf, resp_len);
+	memcpy(ctx->uart_buf, &hdr, sizeof(hdr));
+	memcpy(ctx->uart_buf + sizeof(hdr), &ctx->status, sizeof(ctx->status));
+	uart_write_blocking(uart0, ctx->uart_buf, resp_len + sizeof(hdr));
 
 	return STATE_WAIT_FOR_SYNC;
 }
@@ -734,7 +735,7 @@ int main(void)
     uart_set_translate_crlf(uart0, false);
 
 	struct cmd_context ctx;
-	uint8_t uart_buf[(sizeof(uint32_t) * (1 + MAX_NARG)) + MAX_DATA_LEN];
+	uint8_t uart_buf[(sizeof(uint32_t) * (1 + MAX_NARG + 1 /* HDR*/)) + MAX_DATA_LEN];
 	ctx.uart_buf = uart_buf;
 	enum state state = STATE_WAIT_FOR_SYNC;
 
